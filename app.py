@@ -26,27 +26,6 @@ ml_models = {
     'classifier': None
 }
 
-# Initialize or load saved models
-def initialize_models():
-    """Load ML models if available, otherwise train and save."""
-    os.makedirs(MODEL_DIR, exist_ok=True)
-
-    if all(os.path.exists(p) for p in [REGRESSOR_PATH, CLASSIFIER_PATH, SCALER_PATH]):
-        print("📦 Loading saved ML models...")
-        ml_models['regressor'] = joblib.load(REGRESSOR_PATH)
-        ml_models['classifier'] = joblib.load(CLASSIFIER_PATH)
-        ml_models['scaler'] = joblib.load(SCALER_PATH)
-        print("✓ Models loaded successfully")
-    else:
-        print("⚙️ Training models for the first time (this may take a bit)...")
-        training_data = generate_synthetic_training_data(200)
-        train_models(training_data)
-        print("💾 Saving trained models...")
-        joblib.dump(ml_models['regressor'], REGRESSOR_PATH)
-        joblib.dump(ml_models['classifier'], CLASSIFIER_PATH)
-        joblib.dump(ml_models['scaler'], SCALER_PATH)
-        print("✓ Models saved for next startup")
-
 def generate_synthetic_training_data(n_samples=200):
     """Generate synthetic training data based on educational patterns"""
     np.random.seed(42)
@@ -151,6 +130,26 @@ def train_models(training_df):
     print(f"  - Regressor R² score: {regressor.score(X_scaled, y_regression):.3f}")
     print(f"  - Classifier accuracy: {classifier.score(X_scaled, y_classification):.3f}")
 
+def initialize_models():
+    """Load ML models if available, otherwise train and save."""
+    os.makedirs(MODEL_DIR, exist_ok=True)
+
+    if all(os.path.exists(p) for p in [REGRESSOR_PATH, CLASSIFIER_PATH, SCALER_PATH]):
+        print("📦 Loading saved ML models...")
+        ml_models['regressor'] = joblib.load(REGRESSOR_PATH)
+        ml_models['classifier'] = joblib.load(CLASSIFIER_PATH)
+        ml_models['scaler'] = joblib.load(SCALER_PATH)
+        print("✓ Models loaded successfully")
+    else:
+        print("⚙️ Training models for the first time (this may take a bit)...")
+        training_data = generate_synthetic_training_data(200)
+        train_models(training_data)
+        print("💾 Saving trained models...")
+        joblib.dump(ml_models['regressor'], REGRESSOR_PATH)
+        joblib.dump(ml_models['classifier'], CLASSIFIER_PATH)
+        joblib.dump(ml_models['scaler'], SCALER_PATH)
+        print("✓ Models saved for next startup")
+
 @app.route('/health', methods=['GET'])
 def health_check():
     """Health check endpoint"""
@@ -239,14 +238,17 @@ def predict_pass_rate():
             'raw_features': features,
             'model_info': {
                 'type': 'Ensemble (GBR + RFC)',
-                'training_samples': 1000,
+                'training_samples': 200,
                 'pass_probability': round(pass_probability * 100, 2)
             }
         }
         
+        print(f"✓ Prediction complete: {final_pass_rate:.1f}% pass rate")
+        
         return jsonify(result)
         
     except Exception as e:
+        print(f"❌ Prediction error: {str(e)}")
         return jsonify({
             'success': False,
             'error': str(e)
@@ -362,6 +364,11 @@ def retrain_model():
         # Train new models
         train_models(df)
         
+        # Save retrained models
+        joblib.dump(ml_models['regressor'], REGRESSOR_PATH)
+        joblib.dump(ml_models['classifier'], CLASSIFIER_PATH)
+        joblib.dump(ml_models['scaler'], SCALER_PATH)
+        
         return jsonify({
             'success': True,
             'message': f'Models retrained with {len(df)} samples'
@@ -373,20 +380,19 @@ def retrain_model():
             'error': str(e)
         }), 500
 
+# 🔧 CRITICAL FIX: Initialize models at module level (runs with Gunicorn)
+print("🚀 Starting ML Pass Rate Prediction Server...")
+print("=" * 50)
+initialize_models()
+print("=" * 50)
+print("✓ Server ready!")
+print("📡 Endpoints:")
+print("  - POST /predict-pass-rate")
+print("  - POST /retrain-model")
+print("  - GET  /health")
+print("=" * 50)
+
 if __name__ == '__main__':
-    print("🚀 Starting ML Pass Rate Prediction Server...")
-    print("=" * 50)
-    
-    # Initialize models on startup
-    initialize_models()
-    
-    print("=" * 50)
-    print("✓ Server ready!")
-    print("📡 Endpoints:")
-    print("  - POST /predict-pass-rate")
-    print("  - POST /retrain-model")
-    print("  - GET  /health")
-    print("=" * 50)
-    
-    # Run server
+    # This block only runs during local development (python app.py)
+    # Gunicorn bypasses this entirely
     app.run(host='0.0.0.0', port=5000, debug=True)
